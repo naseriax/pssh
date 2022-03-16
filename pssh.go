@@ -78,7 +78,11 @@ func writeBuff(command string, sshIn io.WriteCloser) (int, error) {
 }
 
 //Connect connects to the specified server and opens a session (Filling the Client and Session fields in SshAgent struct).
-func (s *Nokia_1830PSS) connect() error {
+func (s *Nokia_1830PSS) Connect() error {
+	if err := validateNode(s); err != nil {
+		return err
+	}
+
 	var err error
 	config := &ssh.ClientConfig{
 		User: "cli",
@@ -235,17 +239,5 @@ func validateNode(ne *Nokia_1830PSS) error {
 		return fmt.Errorf("provided port: %v - wrong port number", ne.Port)
 	}
 
-	return nil
-}
-
-//Init initialises the ssh connection and returns the reusable ssh agent.
-func Init(ne *Nokia_1830PSS) error {
-	if err := validateNode(ne); err != nil {
-		return err
-	}
-
-	if err := ne.connect(); err != nil {
-		return err
-	}
 	return nil
 }
