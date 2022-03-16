@@ -14,20 +14,21 @@ import (
 )
 
 func main() {
-
+	//Create the Node object.
 	node := pssh.Nokia_1830PSS{
 		Ip:       "192.168.10.35",
 		UserName: "admin",
 		Password: "admin",
 	}
-	//Create the Node and initiate the ssh connection.
+
+	//Connect to the Node cli interface.
 	err := node.Connect()
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer node.Disconnect()
 
-	//execute the cli commands.
+	//Run the cli commands.
 	res, err := node.Run("show slot *")
 	if err != nil {
 		log.Fatalln(err)
