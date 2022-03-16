@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"log"
 
-	//import the pssh package.
+	//import the 1830pss cli module.
 	"github.com/naseriax/pssh"
 )
 
 func main() {
-    //create the Node. 
+    //Create the Node. 
 	node := pssh.Nokia_1830PSS{
 		Ip:       "192.168.10.35",
 		UserName: "admin",
@@ -22,16 +22,15 @@ func main() {
 		Port:     "22",
 		Name:     "",
 	}
-
-	//initiate the ssh connection.
-	err := pssh.Init(&node)
+	//Connect to the node's cli via ssh.
+	err := node.Connect()
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer node.Disconnect()
 
 	//execute the cli commands.
-	res, err := node.Run("show version")
+	res, err := node.Run("show slot *")
 	if err != nil {
 		log.Fatalln(err)
 	}
