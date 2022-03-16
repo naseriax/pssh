@@ -231,7 +231,7 @@ func validateNode(ne *Nokia_1830PSS) error {
 	if err := validateIpAddress(ne.Ip); err != nil {
 		return err
 	}
-	if _, err := strconv.Atoi(ne.Port); err == nil {
+	if _, err := strconv.Atoi(ne.Port); err != nil {
 		return fmt.Errorf("provided port: %v - wrong port number", ne.Port)
 	}
 
