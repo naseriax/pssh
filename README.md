@@ -9,11 +9,12 @@ import (
 	"fmt"
 	"log"
 
+	//import the pssh package.
 	"github.com/naseriax/pssh"
 )
 
 func main() {
-
+    //create the Node. 
 	node := pssh.Nokia_1830PSS{
 		Ip:       "192.168.10.35",
 		UserName: "admin",
@@ -21,7 +22,8 @@ func main() {
 		Port:     "22",
 		Name:     "",
 	}
-	//Create the Node and initiate the ssh connection.
+
+	//initiate the ssh connection.
 	err := pssh.Init(&node)
 	if err != nil {
 		log.Fatalln(err)
