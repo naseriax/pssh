@@ -230,13 +230,14 @@ func validateIpAddress(ip string) error {
 }
 
 //
-func validateNode(ne *Nokia_1830PSS) error {
-	ne.Timeout = 30
-	if err := validateIpAddress(ne.Ip); err != nil {
+func validateNode(s *Nokia_1830PSS) error {
+	s.Timeout = 30
+	if err := validateIpAddress(s.Ip); err != nil {
 		return err
 	}
-	if _, err := strconv.Atoi(ne.Port); err != nil {
-		return fmt.Errorf("provided port: %v - wrong port number", ne.Port)
+	if _, err := strconv.Atoi(s.Port); err != nil {
+		log.Printf("provided port: %v - wrong port number, defaulting to 22", s.Port)
+		s.Port = "22"
 	}
 
 	return nil
