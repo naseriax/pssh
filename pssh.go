@@ -263,15 +263,15 @@ func validateNode(s *Nokia_1830PSS) error {
 }
 
 func (s *Nokia_1830PSS) gmreLogin() error {
-	if w, err := writeBuff("tools gmre", s.SshIn); err != nil {
+	if _, err := writeBuff("tools gmre", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Run(tools gmre) - details: %v", s.Ip, s.Port, err.Error())
-	} else {
-		fmt.Println(w)
 	}
 
-	if _, err := readBuff([]string{"username:"}, s.SshOut, 15); err != nil {
+	if w, err := readBuff([]string{"username:"}, s.SshOut, 15); err != nil {
 		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(username:) - details: %v", s.Ip, s.Port, err.Error())
+	} else {
+		fmt.Println(w)
 	}
 
 	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
