@@ -14,36 +14,36 @@ import (
 )
 
 func main() {
-
+    //Create the node.
 	node := pssh.Nokia_1830PSS{
-		Ip:       "127.0.0.1",
+		Ip:       "172.16.0.1",
 		UserName: "admin",
 		Password: `admin`,
 	}
 
-	//Create the node and initiate the ssh connection.
+	//Initiate the ssh connection.
 	if err := node.Connect();err != nil {
 		log.Fatalln(err)
 	}
-	
+
 	defer node.Disconnect()
 
-	//execute cli commands.
+	//Execute cli commands.
 	res, err := node.Run("cli", "show slot *")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	//print the result.
+	//Print the result.
 	fmt.Println(res)
 
-	//execute gmre commands.
+	//Execute gmre commands.
 	res, err = node.Run("gmre", "show lsp")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	//print the result.
+	//Print the result.
 	fmt.Println(res)
 }
 ```
