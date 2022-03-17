@@ -20,11 +20,12 @@ func main() {
 		UserName: "admin",
 		Password: `admin`,
 	}
+
 	//Create the node and initiate the ssh connection.
-	err := node.Connect()
-	if err != nil {
+	if err := node.Connect();err != nil {
 		log.Fatalln(err)
 	}
+	
 	defer node.Disconnect()
 
 	//execute cli commands.
