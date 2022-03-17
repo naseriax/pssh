@@ -189,35 +189,37 @@ func (s *Nokia_1830PSS) cliLogin() error {
 }
 
 //Run executes the given cli command on the opened session.
-func (s *Nokia_1830PSS) Run(env string, cmds ...string) (string, error) {
+func (s *Nokia_1830PSS) Run(env string, cmds ...string) (map[string]string, error) {
 	prompt := []string{s.Name + "#"}
 	if env == "gmre" {
 		if err := s.gmreLogin(); err != nil {
-			return "", err
+			return nil, err
 		}
-		// for c := range cmds {
-		// 	cmds[c] += "\r"
-		// }
+		for c := range cmds {
+			cmds[c] += "\r"
+		}
 
 		prompt = []string{"]#"}
 	}
-	result := ""
+	result := map[string]string{}
 	for _, c := range cmds {
 
 		if _, err := writeBuff(c, s.SshIn); err != nil {
 			s.Session.Close()
-			return "", fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
+			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
 		}
 
 		data, err := readBuff(prompt, s.SshOut, 15)
 		if err != nil {
-			return "", fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
+			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
 		}
-		result += data
+		result[c] = data
 	}
 
 	if env == "gmre" {
-		s.gmreLogout()
+		if err := s.gmreLogout(); err != nil {
+			return nil, err
+		}
 	}
 
 	return result, nil
