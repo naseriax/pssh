@@ -47,3 +47,14 @@ func main() {
 	fmt.Println(res)
 }
 ```
+
+# Features:
+```
+It supports accessing Nokia 1830PSS (SWDM Portfolio) SSH cli and gmre interfaces (Port 22 for cli and gmre from within cli (tools gmre)).
+```
+
+# Enhancement plans:
+```
+Currently every gmre command requires gmrelogin and gmrelogout.
+The plan is to pack all gmre commands, login to gmre once, execute them ,and logout.
+```
