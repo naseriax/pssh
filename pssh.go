@@ -190,15 +190,28 @@ func (s *Nokia_1830PSS) cliLogin() error {
 }
 
 //Run executes the given cli command on the opened session.
-func (s *Nokia_1830PSS) Run(cmd string) (string, error) {
-	if _, err := writeBuff(cmd, s.SshIn); err != nil {
-		s.Session.Close()
-		return "", fmt.Errorf("%v:%v - failure on Exec(%v) - details: %v", s.Ip, s.Port, cmd, err.Error())
+func (s *Nokia_1830PSS) Run(env, cmd string) (string, error) {
+	prompt := []string{s.Name + "#"}
+	if env == "gmre" {
+		if err := s.gmreLogin(); err != nil {
+			return "", err
+		}
+		cmd += "\r"
+		prompt = []string{"]#"}
 	}
 
-	data, err := readBuff([]string{s.Name + "#"}, s.SshOut, 15)
+	if _, err := writeBuff(cmd, s.SshIn); err != nil {
+		s.Session.Close()
+		return "", fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, cmd, err.Error())
+	}
+
+	data, err := readBuff(prompt, s.SshOut, 15)
 	if err != nil {
-		return "", fmt.Errorf("%v:%v - failure on Exec(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, cmd, err.Error())
+		return "", fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, cmd, err.Error())
+	}
+
+	if env == "gmre" {
+		s.gmreLogout()
 	}
 
 	return data, nil
@@ -238,6 +251,50 @@ func validateNode(s *Nokia_1830PSS) error {
 	if _, err := strconv.Atoi(s.Port); err != nil {
 		log.Printf("provided port: %v - wrong port number, defaulting to 22", s.Port)
 		s.Port = "22"
+	}
+
+	return nil
+}
+
+func (s *Nokia_1830PSS) gmreLogin() error {
+	if _, err := writeBuff("tools gmre", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on Run(tools gmre) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := readBuff([]string{"username:"}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(username:) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on username(gmre) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := readBuff([]string{"password:"}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(password:) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on password(gmre) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := readBuff([]string{"]#"}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(]#) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	return nil
+}
+
+func (s *Nokia_1830PSS) gmreLogout() error {
+	if _, err := writeBuff("quit\r", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on Run(quit) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(cli prompt) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
 	return nil
