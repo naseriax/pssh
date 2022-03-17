@@ -195,9 +195,9 @@ func (s *Nokia_1830PSS) Run(env string, cmds ...string) (string, error) {
 		if err := s.gmreLogin(); err != nil {
 			return "", err
 		}
-		for c := range cmds {
-			cmds[c] += "\r"
-		}
+		// for c := range cmds {
+		// 	cmds[c] += "\r"
+		// }
 
 		prompt = []string{"]#"}
 	}
@@ -268,10 +268,8 @@ func (s *Nokia_1830PSS) gmreLogin() error {
 		return fmt.Errorf("%v:%v - failure on Run(tools gmre) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if w, err := readBuff([]string{"username:"}, s.SshOut, 15); err != nil {
+	if _, err := readBuff([]string{"username:"}, s.SshOut, 15); err != nil {
 		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(username:) - details: %v", s.Ip, s.Port, err.Error())
-	} else {
-		fmt.Println(w)
 	}
 
 	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
