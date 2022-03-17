@@ -59,7 +59,6 @@ func readBuff(whattoexpect []string, sshOut io.Reader, timeoutSeconds int) (stri
 		case ret := <-buffRead:
 			ch <- ret
 		case <-time.After(time.Duration(timeoutSeconds) * time.Second):
-			log.Printf("Timedout: %v", whattoexpect)
 		}
 	}(whattoexpect, sshOut, errChan)
 	select {
