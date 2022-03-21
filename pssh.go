@@ -256,7 +256,6 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 			defer s.Session.Close()
 			var b bytes.Buffer
 			s.Session.Stdout = &b
-			fmt.Println("First Info:" + b.String())
 			if err := s.Session.Run(c); err != nil {
 				return nil, fmt.Errorf("failed to run: %v >> %v", c, err.Error())
 			} else {
