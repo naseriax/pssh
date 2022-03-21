@@ -12,16 +12,17 @@ import (
 )
 
 type Nokia_1830PSS struct {
-	Ip       string
-	Name     string
-	UserName string
-	Password string
-	Port     string
-	SshOut   io.Reader
-	SshIn    io.WriteCloser
-	Timeout  int
-	Client   *ssh.Client
-	Session  *ssh.Session
+	ViaTunnel bool
+	Ip        string
+	Name      string
+	UserName  string
+	Password  string
+	Port      string
+	SshOut    io.Reader
+	SshIn     io.WriteCloser
+	Timeout   int
+	Client    *ssh.Client
+	Session   *ssh.Session
 }
 
 func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
@@ -91,9 +92,17 @@ func (s *Nokia_1830PSS) Connect() error {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         time.Duration(s.Timeout) * time.Second,
 	}
-	s.Client, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", s.Ip, s.Port), config)
-	if err != nil {
-		return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
+
+	if s.ViaTunnel {
+		s.Client, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", "127.0.0.1", s.Port), config)
+		if err != nil {
+			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
+		}
+	} else {
+		s.Client, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", s.Ip, s.Port), config)
+		if err != nil {
+			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
+		}
 	}
 
 	if err := s.cliLogin(); err != nil {
