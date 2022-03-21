@@ -295,7 +295,6 @@ func validateIpAddress(ip string) error {
 	return nil
 }
 
-//
 func validateNode(s *Endpoint) error {
 	s.Timeout = 30
 	if err := validateIpAddress(s.Ip); err != nil {
