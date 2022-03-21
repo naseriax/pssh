@@ -235,15 +235,14 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 			}
 		}
 	} else if s.Kind == "Linux" {
-		var err error
 		for _, c := range cmds {
-			s.Session, err = s.Client.NewSession()
+			session, err := s.Client.NewSession()
 			if err != nil {
 				return nil, fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
 			}
-			defer s.Session.Close()
+			defer session.Close()
 			var b bytes.Buffer
-			s.Session.Stdout = &b
+			session.Stdout = &b
 			if err := s.Session.Run(c); err != nil {
 				return nil, fmt.Errorf("failed to run: %v >> %v", c, err.Error())
 			} else {
@@ -257,7 +256,9 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 
 //Disconnect closes the ssh sessoin and connection.
 func (s *Endpoint) Disconnect() {
-	s.Session.Close()
+	if s.Kind == "1830PSS" {
+		s.Session.Close()
+	}
 	s.Client.Close()
 }
 
