@@ -1,6 +1,7 @@
 package pssh
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -11,7 +12,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type Nokia_1830PSS struct {
+type Endpoint struct {
 	ViaTunnel bool
 	Ip        string
 	Name      string
@@ -23,6 +24,7 @@ type Nokia_1830PSS struct {
 	Timeout   int
 	Client    *ssh.Client
 	Session   *ssh.Session
+	Kind      string
 }
 
 func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
@@ -78,7 +80,7 @@ func writeBuff(command string, sshIn io.WriteCloser) (int, error) {
 }
 
 //Connect connects to the specified server and opens a session (Filling the Client and Session fields in SshAgent struct).
-func (s *Nokia_1830PSS) Connect() error {
+func (s *Endpoint) Connect() error {
 	if err := validateNode(s); err != nil {
 		return err
 	}
@@ -104,15 +106,16 @@ func (s *Nokia_1830PSS) Connect() error {
 			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
 		}
 	}
-
-	if err := s.cliLogin(); err != nil {
-		return err
+	if s.Kind == "1830PSS" {
+		if err := s.cliLogin(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 //parseNeName extracts the actuall ne name and fills ne.Name variable.
-func (s *Nokia_1830PSS) parseNeName(lines []string) string {
+func (s *Endpoint) parseNeName(lines []string) string {
 	for _, l := range lines {
 		if strings.Contains(l, "#") {
 			trimedLine := strings.TrimSpace(l)
@@ -125,7 +128,7 @@ func (s *Nokia_1830PSS) parseNeName(lines []string) string {
 }
 
 //CliLogin does the special login sequence needed to login to 1830PSS cli.
-func (s *Nokia_1830PSS) cliLogin() error {
+func (s *Endpoint) cliLogin() error {
 	var err error
 	modes := ssh.TerminalModes{
 		// disable echoing.
@@ -198,36 +201,54 @@ func (s *Nokia_1830PSS) cliLogin() error {
 }
 
 //Run executes the given cli command on the opened session.
-func (s *Nokia_1830PSS) Run(env string, cmds ...string) (map[string]string, error) {
-	prompt := []string{s.Name + "#"}
-	if env == "gmre" {
-		if err := s.gmreLogin(); err != nil {
-			return nil, err
-		}
-		for c := range cmds {
-			cmds[c] += "\r"
-		}
-
-		prompt = []string{"]#"}
-	}
+func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 	result := map[string]string{}
-	for _, c := range cmds {
+	if s.Kind == "1830PSS" {
+		prompt := []string{s.Name + "#"}
+		if env == "gmre" {
+			if err := s.gmreLogin(); err != nil {
+				return nil, err
+			}
+			for c := range cmds {
+				cmds[c] += "\r"
+			}
 
-		if _, err := writeBuff(c, s.SshIn); err != nil {
-			s.Session.Close()
-			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
+			prompt = []string{"]#"}
 		}
 
-		data, err := readBuff(prompt, s.SshOut, 15)
-		if err != nil {
-			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
-		}
-		result[c] = data
-	}
+		for _, c := range cmds {
+			if _, err := writeBuff(c, s.SshIn); err != nil {
+				s.Session.Close()
+				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
+			}
 
-	if env == "gmre" {
-		if err := s.gmreLogout(); err != nil {
-			return nil, err
+			data, err := readBuff(prompt, s.SshOut, 15)
+			if err != nil {
+				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
+			}
+			result[c] = data
+		}
+
+		if env == "gmre" {
+			if err := s.gmreLogout(); err != nil {
+				return nil, err
+			}
+		}
+	} else if s.Kind == "Linux" {
+		var err error
+		for _, c := range cmds {
+			s.Session, err = s.Client.NewSession()
+			if err != nil {
+				return nil, fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
+			}
+			defer s.Session.Close()
+			var b bytes.Buffer
+			s.Session.Stdout = &b
+			if err := s.Session.Run(c); err != nil {
+				return nil, fmt.Errorf("failed to run: %v >> %v", c, err.Error())
+			} else {
+				result[c] = b.String()
+			}
 		}
 	}
 
@@ -235,7 +256,7 @@ func (s *Nokia_1830PSS) Run(env string, cmds ...string) (map[string]string, erro
 }
 
 //Disconnect closes the ssh sessoin and connection.
-func (s *Nokia_1830PSS) Disconnect() {
+func (s *Endpoint) Disconnect() {
 	s.Session.Close()
 	s.Client.Close()
 }
@@ -260,7 +281,7 @@ func validateIpAddress(ip string) error {
 }
 
 //
-func validateNode(s *Nokia_1830PSS) error {
+func validateNode(s *Endpoint) error {
 	s.Timeout = 30
 	if err := validateIpAddress(s.Ip); err != nil {
 		return err
@@ -273,7 +294,7 @@ func validateNode(s *Nokia_1830PSS) error {
 	return nil
 }
 
-func (s *Nokia_1830PSS) gmreLogin() error {
+func (s *Endpoint) gmreLogin() error {
 	if _, err := writeBuff("tools gmre", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Run(tools gmre) - details: %v", s.Ip, s.Port, err.Error())
@@ -304,7 +325,7 @@ func (s *Nokia_1830PSS) gmreLogin() error {
 	return nil
 }
 
-func (s *Nokia_1830PSS) gmreLogout() error {
+func (s *Endpoint) gmreLogout() error {
 	if _, err := writeBuff("quit\r", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Run(quit) - details: %v", s.Ip, s.Port, err.Error())
