@@ -235,15 +235,16 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 			}
 		}
 	} else if s.Kind == "Linux" {
+		var err error
 		for _, c := range cmds {
-			session, err := s.Client.NewSession()
+			s.Session, err = s.Client.NewSession()
 			if err != nil {
 				return nil, fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
 			}
-			defer session.Close()
+			defer s.Session.Close()
 			var b bytes.Buffer
-			session.Stdout = &b
-			if err := session.Run(c); err != nil {
+			s.Session.Stdout = &b
+			if err := s.Session.Run(c); err != nil {
 				return nil, fmt.Errorf("failed to run: %v >> %v", c, err.Error())
 			} else {
 				result[c] = b.String()
