@@ -87,33 +87,24 @@ func (s *Endpoint) Connect() error {
 
 	var err error
 	config := &ssh.ClientConfig{}
-	// if s.Kind == "Linux" {
-	// 	config = &ssh.ClientConfig{
-	// 		User: s.UserName,
-	// 		Auth: []ssh.AuthMethod{
-	// 			ssh.Password(s.Password),
-	// 		},
-	// 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	// 		Timeout:         time.Duration(s.Timeout) * time.Second,
-	// 	}
-	// } else {
-	// 	config = &ssh.ClientConfig{
-	// 		User: "cli",
-	// 		Auth: []ssh.AuthMethod{
-	// 			ssh.Password("cli"),
-	// 		},
-	// 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	// 		Timeout:         time.Duration(s.Timeout) * time.Second,
-	// 	}
-	// }
-
-	config = &ssh.ClientConfig{
-		User: "cli",
-		Auth: []ssh.AuthMethod{
-			ssh.Password("cli"),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Duration(s.Timeout) * time.Second,
+	if s.Kind == "Linux" {
+		config = &ssh.ClientConfig{
+			User: s.UserName,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(s.Password),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout:         time.Duration(s.Timeout) * time.Second,
+		}
+	} else {
+		config = &ssh.ClientConfig{
+			User: "cli",
+			Auth: []ssh.AuthMethod{
+				ssh.Password("cli"),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout:         time.Duration(s.Timeout) * time.Second,
+		}
 	}
 
 	if s.ViaTunnel {
@@ -265,6 +256,7 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 			defer s.Session.Close()
 			var b bytes.Buffer
 			s.Session.Stdout = &b
+			fmt.Println("First Info:" + b.String())
 			if err := s.Session.Run(c); err != nil {
 				return nil, fmt.Errorf("failed to run: %v >> %v", c, err.Error())
 			} else {
