@@ -86,24 +86,20 @@ func (s *Endpoint) Connect() error {
 	}
 
 	var err error
-	config := &ssh.ClientConfig{}
+	config := &ssh.ClientConfig{
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         time.Duration(s.Timeout) * time.Second,
+	}
+
 	if s.Kind == "Linux" {
-		config = &ssh.ClientConfig{
-			User: s.UserName,
-			Auth: []ssh.AuthMethod{
-				ssh.Password(s.Password),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         time.Duration(s.Timeout) * time.Second,
+		config.User = s.UserName
+		config.Auth = []ssh.AuthMethod{
+			ssh.Password(s.Password),
 		}
-	} else {
-		config = &ssh.ClientConfig{
-			User: "cli",
-			Auth: []ssh.AuthMethod{
-				ssh.Password("cli"),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         time.Duration(s.Timeout) * time.Second,
+	} else if s.Kind == "1830PSS" {
+		config.User = "cli"
+		config.Auth = []ssh.AuthMethod{
+			ssh.Password("cli"),
 		}
 	}
 
