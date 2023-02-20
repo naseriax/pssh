@@ -14,8 +14,29 @@ import (
 )
 
 func main() {
-	//Create the node.
-	node := pssh.Nokia_1830PSS{
+	//Create the 1830PSS node.
+	node := pssh.Endpoint{
+		Kind:	  "1830PSS",
+		Ip:       "172.16.0.0",
+		UserName: "admin",
+		Password: `admin`,
+	}
+
+    //or
+
+	//Create the 1830PSD node.
+	node := pssh.Endpoint{
+		Kind:	  "1830PSD",
+		Ip:       "172.16.0.0",
+		UserName: "admin",
+		Password: `admin`,
+	}
+
+    //or
+
+	//Create the Linux node.
+	node := pssh.Endpoint{
+		Kind:     "Linux",
 		Ip:       "172.16.0.0",
 		UserName: "admin",
 		Password: `admin`,
@@ -66,7 +87,7 @@ Currently every gmre command requires gmrelogin and gmrelogout.
 The plan is to pack all gmre commands, login to gmre once, execute them ,and logout.
 ```
 
-# SSH Tunneling feature: 
+# SSH Tunneling feature:
 ```
 50 %
 ```

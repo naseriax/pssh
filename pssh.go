@@ -79,7 +79,7 @@ func writeBuff(command string, sshIn io.WriteCloser) (int, error) {
 	return returnCode, err
 }
 
-//Connect connects to the specified server and opens a session (Filling the Client and Session fields in SshAgent struct).
+// Connect connects to the specified server and opens a session (Filling the Client and Session fields in SshAgent struct).
 func (s *Endpoint) Connect() error {
 	if err := validateNode(s); err != nil {
 		return err
@@ -96,7 +96,7 @@ func (s *Endpoint) Connect() error {
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password(s.Password),
 		}
-	} else if s.Kind == "1830PSS" {
+	} else if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
 		config.User = "cli"
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password("cli"),
@@ -114,7 +114,7 @@ func (s *Endpoint) Connect() error {
 			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
 		}
 	}
-	if s.Kind == "1830PSS" {
+	if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
 		if err := s.cliLogin(); err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (s *Endpoint) Connect() error {
 	return nil
 }
 
-//parseNeName extracts the actuall ne name and fills ne.Name variable.
+// parseNeName extracts the actuall ne name and fills ne.Name variable.
 func (s *Endpoint) parseNeName(lines []string) string {
 	for _, l := range lines {
 		if strings.Contains(l, "#") {
@@ -135,7 +135,7 @@ func (s *Endpoint) parseNeName(lines []string) string {
 	return s.Name
 }
 
-//CliLogin does the special login sequence needed to login to 1830PSS cli.
+// CliLogin does the special login sequence needed to login to 1830PSS cli.
 func (s *Endpoint) cliLogin() error {
 	var err error
 	modes := ssh.TerminalModes{
@@ -182,12 +182,22 @@ func (s *Endpoint) cliLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.Password) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if _, err := readBuff([]string{"(Y/N)?", "authentication failed"}, s.SshOut, 4); err != nil {
-		return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, err.Error())
-	}
-	if _, err := writeBuff("y", s.SshIn); err != nil {
-		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on writeBuff(Y) - details: %v", s.Ip, s.Port, err.Error())
+	if s.Kind == "1830PSS" {
+		if _, err := readBuff([]string{"(Y/N)?", "authentication failed"}, s.SshOut, 4); err != nil {
+			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, err.Error())
+		}
+		if _, err := writeBuff("y", s.SshIn); err != nil {
+			s.Session.Close()
+			return fmt.Errorf("%v:%v - failure on writeBuff(Y) - details: %v", s.Ip, s.Port, err.Error())
+		}
+	} else if s.Kind == "1830PSD" {
+		if _, err := readBuff([]string{"(yes/no):", "authentication failed"}, s.SshOut, 4); err != nil {
+			return fmt.Errorf("%v:%v - failure on readBuff(yes/no): - details: %v", s.Ip, s.Port, err.Error())
+		}
+		if _, err := writeBuff("yes", s.SshIn); err != nil {
+			s.Session.Close()
+			return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
+		}
 	}
 	result, err := readBuff([]string{"#"}, s.SshOut, 4)
 	if err != nil {
@@ -208,10 +218,10 @@ func (s *Endpoint) cliLogin() error {
 	return nil
 }
 
-//Run executes the given cli command on the opened session.
+// Run executes the given cli command on the opened session.
 func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 	result := map[string]string{}
-	if s.Kind == "1830PSS" {
+	if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
 		prompt := []string{s.Name + "#"}
 		if env == "gmre" {
 			if err := s.gmreLogin(); err != nil {
@@ -263,9 +273,9 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 	return result, nil
 }
 
-//Disconnect closes the ssh sessoin and connection.
+// Disconnect closes the ssh sessoin and connection.
 func (s *Endpoint) Disconnect() {
-	if s.Kind == "1830PSS" {
+	if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
 		s.Session.Close()
 	}
 	s.Client.Close()
