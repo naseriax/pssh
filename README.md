@@ -1,8 +1,4 @@
-# pssh
-Nokia 1830PSS cli ssh wrapper in Go!
-
-
-# Usage:
+# Usage example:
 ```
 package main
 
@@ -14,80 +10,44 @@ import (
 )
 
 func main() {
-	//Create the 1830PSS node.
+
+	nodeIP := "172.16.0.1"
+	log.Printf("connecting to %v", nodeIP)
+
+	// create the node.
 	node := pssh.Endpoint{
-		Kind:	  "1830PSS",
-		Ip:       "172.16.0.0",
+		Ip:       nodeIP,
 		UserName: "admin",
-		Password: `admin`,
+		Password: "admin",
+		Port:     "22",
+		Kind:     "GMRE", //Accepted values: BASH, PSS, OSE, PSD, GMRE
 	}
 
-    //or
 
-	//Create the 1830PSD node.
-	node := pssh.Endpoint{
-		Kind:	  "1830PSD",
-		Ip:       "172.16.0.0",
-		UserName: "admin",
-		Password: `admin`,
-	}
-
-    //or
-
-	//Create the Linux node.
-	node := pssh.Endpoint{
-		Kind:     "Linux",
-		Ip:       "172.16.0.0",
-		UserName: "admin",
-		Password: `admin`,
-	}
-
-	//Initiate the ssh connection.
+    // initiate the ssh connection.
 	if err := node.Connect(); err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
-	defer node.Disconnect()
+	// set the logout clause.
+	defer func(node pssh.Endpoint) { node.Disconnect(); log.Printf("Closed ssh session for %v", node.Ip) }(node)
 
-	//Execute cli commands. make sure the first parameter is "cli" or "gmre" to epecify the execution environment.
-	//Commands in the same environment (cli or gmre) can be sent together as below.
-	//res is a map[string]string which contains commands as key and their result as value.
-	res, err := node.Run("cli", "show slot *", "show version")
+    //res is a map[string]string which contains commands as key and their results as value.
+	res, err := node.Run(
+		"show lsp",
+		"show node",
+	)
+
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
 	}
 
 	//Print the result.
-	fmt.Printf("%+v", res)
-
-	//Execute gmre commands. make sure the first parameter is "gmre" to epecify the execution environment.
-	//Commands in the same environment (cli or gmre) can be sent together as below.
-	//res is a map[string]string which contains commands as key and their result as value.
-	res, err = node.Run("gmre", "show lsp", "show interfaces", "show node", "show subnode")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	//Print the result.
-	fmt.Printf("%+v", res)
-
+	fmt.Println(node.Ip, res)
 }
 ```
-
 # Features:
 ```
-It supports accessing Nokia 1830PSS (SWDM Portfolio) SSH cli and gmre interfaces (Port 22 for cli and gmre from within cli (tools gmre)).
-```
-
-## Enhancement plans
-
-# Batch commands execution: (Already implemented)
-```
-Currently every gmre command requires gmrelogin and gmrelogout.
-The plan is to pack all gmre commands, login to gmre once, execute them ,and logout.
-```
-
-# SSH Tunneling feature:
-```
-50 %
+It supports connecting to 1830PSS cli (Kind = PSS),1830PSS ose (Kind = OSE), 1830PSS gmre (Kind = GMRE), Linux shell (Kind = BASH) and 1830PSD cli (Kind = PSD).
 ```
