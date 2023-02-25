@@ -186,7 +186,7 @@ func (s *Endpoint) cliLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.Password) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if s.Kind == "PSS" {
+	if s.Kind == "PSS" || s.Kind == "GMRE" {
 		if _, err := readBuff([]string{"(Y/N)?", "authentication failed"}, s.SshOut, 4); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, err.Error())
 		}
@@ -214,7 +214,7 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on writeBuff(Page Status Disable) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if s.Kind == "PSS" {
+	if s.Kind == "PSS" || s.Kind == "GMRE" {
 		if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 4); err != nil {
 			s.Session.Close()
 			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
