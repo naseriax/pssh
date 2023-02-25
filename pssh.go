@@ -24,7 +24,7 @@ type Endpoint struct {
 	Timeout   int
 	Client    *ssh.Client
 	Session   *ssh.Session
-	Kind      string
+	Kind      string //Accepted values: BASH, PSS, OSE, PSD
 }
 
 func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
@@ -91,12 +91,12 @@ func (s *Endpoint) Connect() error {
 		Timeout:         time.Duration(s.Timeout) * time.Second,
 	}
 
-	if s.Kind == "Linux" {
+	if s.Kind == "BASH" || s.Kind == "OSE" {
 		config.User = s.UserName
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password(s.Password),
 		}
-	} else if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
+	} else if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		config.User = "cli"
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password("cli"),
@@ -114,8 +114,12 @@ func (s *Endpoint) Connect() error {
 			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
 		}
 	}
-	if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		if err := s.cliLogin(); err != nil {
+			return err
+		}
+	} else if s.Kind == "OSE" {
+		if err := s.oseLogin(); err != nil {
 			return err
 		}
 	}
@@ -135,7 +139,7 @@ func (s *Endpoint) parseNeName(lines []string) string {
 	return s.Name
 }
 
-// CliLogin does the special login sequence needed to login to 1830PSS cli.
+// CliLogin does the special login sequence needed to login to PSS cli.
 func (s *Endpoint) cliLogin() error {
 	var err error
 	modes := ssh.TerminalModes{
@@ -182,22 +186,18 @@ func (s *Endpoint) cliLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.Password) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if s.Kind == "1830PSS" {
+	if s.Kind == "PSS" {
 		if _, err := readBuff([]string{"(Y/N)?", "authentication failed"}, s.SshOut, 4); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, err.Error())
 		}
-		if _, err := writeBuff("y", s.SshIn); err != nil {
-			s.Session.Close()
-			return fmt.Errorf("%v:%v - failure on writeBuff(Y) - details: %v", s.Ip, s.Port, err.Error())
-		}
-	} else if s.Kind == "1830PSD" {
+	} else if s.Kind == "PSD" {
 		if _, err := readBuff([]string{"(yes/no):", "authentication failed"}, s.SshOut, 4); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(yes/no): - details: %v", s.Ip, s.Port, err.Error())
 		}
-		if _, err := writeBuff("yes", s.SshIn); err != nil {
-			s.Session.Close()
-			return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
-		}
+	}
+	if _, err := writeBuff("yes", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
 	}
 	result, err := readBuff([]string{"#"}, s.SshOut, 4)
 	if err != nil {
@@ -205,25 +205,91 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on readBuff(#) (INIT) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	s.Name = s.parseNeName(strings.Split(result, "\r"))
+	if s.Kind == "PSS" {
+		s.Name = s.parseNeName(strings.Split(result, "\r"))
+	}
 
 	if _, err := writeBuff("paging status disable", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(Page Status Disable) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 4); err != nil {
-		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
+
+	if s.Kind == "PSS" {
+		if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 4); err != nil {
+			s.Session.Close()
+			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
+		}
+	} else if s.Kind == "PSD" {
+		if _, err := readBuff([]string{"#"}, s.SshOut, 4); err != nil {
+			s.Session.Close()
+			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
+		}
 	}
 	return nil
 }
 
+// oseLogin first logs in to the BASH cli and then jump to the OSE prompt.
+func (s *Endpoint) oseLogin() error {
+	var err error
+	modes := ssh.TerminalModes{
+		// disable echoing.
+		ssh.ECHO: 0,
+		// input speed = 14.4kbaud.
+		ssh.TTY_OP_ISPEED: 14400,
+		// output speed = 14.4kbaud.
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+	s.Session, err = s.Client.NewSession()
+	if err != nil {
+		return fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
+	}
+	s.SshOut, err = s.Session.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("%v:%v - failure on Session.StdoutPipe() - details: %v", s.Ip, s.Port, err.Error())
+	}
+	s.SshIn, err = s.Session.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("%v:%v - failure on Session.StdinPipe() - details: %v", s.Ip, s.Port, err.Error())
+	}
+	if err := s.Session.RequestPty("xterm", 0, 200, modes); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on Session.RequestPty() - details: %v", s.Ip, s.Port, err.Error())
+	}
+	if err := s.Session.Shell(); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
+	}
+	if d, err := readBuff([]string{"#"}, s.SshOut, 6); err != nil {
+		s.Session.Close()
+		log.Println(d)
+		return fmt.Errorf("%v:%v - failure on readBuff(#) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := writeBuff("ose", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on writeBuff(ose) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if _, err := writeBuff("\n \n", s.SshIn); err != nil {
+		s.Session.Close()
+		return fmt.Errorf("%v:%v - failure on writeBuff(newLines) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if d, err := readBuff([]string{"ACT-OSE $ "}, s.SshOut, 6); err != nil {
+		s.Session.Close()
+		log.Println(d)
+		return fmt.Errorf("%v:%v - failure on readBuff(ACT-OSE $ ) - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	return nil
+}
+
 // Run executes the given cli command on the opened session.
-func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
+func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
 	result := map[string]string{}
-	if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		prompt := []string{s.Name + "#"}
-		if env == "gmre" {
+		if s.Kind == "GMRE" {
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
 			}
@@ -247,12 +313,12 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 			result[c] = data
 		}
 
-		if env == "gmre" {
+		if s.Kind == "GMRE" || s.Kind == "PSD" {
 			if err := s.gmreLogout(); err != nil {
 				return nil, err
 			}
 		}
-	} else if s.Kind == "Linux" {
+	} else if s.Kind == "BASH" {
 		var err error
 		for _, c := range cmds {
 			s.Session, err = s.Client.NewSession()
@@ -268,6 +334,23 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 				result[c] = b.String()
 			}
 		}
+	} else if s.Kind == "OSE" {
+		prompt := []string{s.Name + "ACT-OSE $"}
+		for _, c := range cmds {
+			if _, err := writeBuff(c, s.SshIn); err != nil {
+				s.Session.Close()
+				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
+			}
+
+			data, err := readBuff(prompt, s.SshOut, 15)
+			if err != nil {
+				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
+			}
+			result[c] = data
+		}
+
+		s.Session.Signal(ssh.SIGINT)
+		time.Sleep(3 * time.Second)
 	}
 
 	return result, nil
@@ -275,9 +358,10 @@ func (s *Endpoint) Run(env string, cmds ...string) (map[string]string, error) {
 
 // Disconnect closes the ssh sessoin and connection.
 func (s *Endpoint) Disconnect() {
-	if s.Kind == "1830PSS" || s.Kind == "1830PSD" {
+	if s.Kind == "PSS" {
 		s.Session.Close()
 	}
+
 	s.Client.Close()
 }
 
@@ -313,6 +397,7 @@ func validateNode(s *Endpoint) error {
 	return nil
 }
 
+// gmreLogin logs in to the PSS cli and then switches to gmre by sending "tools gmre" command.
 func (s *Endpoint) gmreLogin() error {
 	if _, err := writeBuff("tools gmre", s.SshIn); err != nil {
 		s.Session.Close()
@@ -344,6 +429,7 @@ func (s *Endpoint) gmreLogin() error {
 	return nil
 }
 
+// gmreLogout sends quit command to PSS gmre and PSD.
 func (s *Endpoint) gmreLogout() error {
 	if _, err := writeBuff("quit\r", s.SshIn); err != nil {
 		s.Session.Close()
