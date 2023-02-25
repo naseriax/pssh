@@ -290,6 +290,7 @@ func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
 	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		prompt := []string{s.Name + "#"}
 		if s.Kind == "GMRE" {
+			prompt = []string{"]#"}
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
 			}
