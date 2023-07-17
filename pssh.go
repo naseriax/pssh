@@ -190,6 +190,9 @@ func (s *Endpoint) cliLogin() error {
 		if _, err := readBuff([]string{"(Y/N)?", "authentication failed"}, s.SshOut, 4); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, err.Error())
 		}
+	} else if s.Kind == "PSS23.6" {
+		goto findPrompt
+
 	} else if s.Kind == "PSD" {
 		if _, err := readBuff([]string{"(yes/no):", "authentication failed"}, s.SshOut, 4); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(yes/no): - details: %v", s.Ip, s.Port, err.Error())
@@ -199,6 +202,9 @@ func (s *Endpoint) cliLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
 	}
+
+findPrompt:
+
 	result, err := readBuff([]string{"#"}, s.SshOut, 4)
 	if err != nil {
 		s.Session.Close()
@@ -287,10 +293,10 @@ func (s *Endpoint) oseLogin() error {
 // Run executes the given cli command on the opened session.
 func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
 	result := map[string]string{}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
 		prompt := []string{s.Name + "#"}
 		if s.Kind == "GMRE" {
-			prompt = []string{"]#"}
+			//prompt = []string{"]#"}
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
 			}
