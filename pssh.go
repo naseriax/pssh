@@ -24,7 +24,7 @@ type Endpoint struct {
 	Timeout   int
 	Client    *ssh.Client
 	Session   *ssh.Session
-	Kind      string //Accepted values: BASH, PSS, OSE, PSD
+	Kind      string //Accepted values: BASH, PSS,PSS23.6, OSE, PSD
 }
 
 func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
@@ -96,7 +96,7 @@ func (s *Endpoint) Connect() error {
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password(s.Password),
 		}
-	} else if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
+	} else if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
 		config.User = "cli"
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password("cli"),
@@ -114,7 +114,7 @@ func (s *Endpoint) Connect() error {
 			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
 		}
 	}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
 		if err := s.cliLogin(); err != nil {
 			return err
 		}
@@ -211,7 +211,7 @@ findPrompt:
 		return fmt.Errorf("%v:%v - failure on readBuff(#) (INIT) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if s.Kind == "PSS" {
+	if s.Kind == "PSS" || s.Kind == "PSS23.6" {
 		s.Name = s.parseNeName(strings.Split(result, "\r"))
 	}
 
@@ -220,7 +220,7 @@ findPrompt:
 		return fmt.Errorf("%v:%v - failure on writeBuff(Page Status Disable) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if s.Kind == "PSS" || s.Kind == "GMRE" {
+	if s.Kind == "PSS" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
 		if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 4); err != nil {
 			s.Session.Close()
 			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
@@ -365,7 +365,7 @@ func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
 
 // Disconnect closes the ssh sessoin and connection.
 func (s *Endpoint) Disconnect() {
-	if s.Kind == "PSS" {
+	if s.Kind == "PSS" || s.Kind == "PSS23.6" {
 		s.Session.Close()
 	}
 
