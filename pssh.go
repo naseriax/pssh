@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	prompt    = `^(([\w\-\#\+\%\/]*\(?\d?\)?\[?\d?\]?#)|(ACT-OSE \$))$`
-	username  = `(?i)(user( ?name)?)\s?:$`
-	password  = `(?i)(pass( ?word)?)\s?:$`
+	prompt    = `([\w\-\#\+\%\/]*(\(?\d?\)?\[?\d?\])?#)|(ACT-OSE \$)`
+	username  = `(?i)(user( ?name)?)\s?:`
+	password  = `(?i)(pass( ?word)?)\s?:`
 	agreement = `\(\s?(?i:yes|y)\s?\/\s?(?i:no|n)\s?\)\s?[:?]?`
+	authFail  = `(?i)(failed\.)`
 )
 
 type Endpoint struct {
@@ -35,31 +36,6 @@ type Endpoint struct {
 	Kind      string //Accepted values: BASH, PSS, OSE, PSD
 }
 
-// func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
-// 	buf := make([]byte, 1000)
-// 	waitingString := ""
-// 	for {
-// 		n, err := sshOut.Read(buf) //this reads the ssh terminal
-// 		if err != nil && err != io.EOF {
-// 			fmt.Println(err)
-// 			break
-// 		}
-// 		if err == io.EOF || n == 0 {
-// 			break
-// 		}
-// 		waitingString = strings.Join([]string{waitingString, string(buf[:n])}, "")
-// 		if strings.Contains(waitingString, whattoexpect[0]) {
-// 			buffRead <- waitingString
-// 			break
-// 		} else if len(whattoexpect) > 1 {
-// 			if strings.Contains(waitingString, whattoexpect[1]) {
-// 				errChan <- fmt.Errorf("wrong username/password")
-// 				break
-// 			}
-// 		}
-// 	}
-// }
-
 func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, buffRead chan<- []string, errChan chan []error) {
 	buf := make([]byte, 1000)
 	waitingString := ""
@@ -67,22 +43,22 @@ func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshO
 		n, err := sshOut.Read(buf) //this reads the ssh terminal
 		if err != nil && err != io.EOF {
 			fmt.Println(err)
-			break
+			return
 		}
 		if err == io.EOF || n == 0 {
-			break
+			return
 		}
 		waitingString = strings.Join([]string{waitingString, string(buf[:n])}, "")
 		for _, re := range happyExpectations {
-			if re.FindString(waitingString) != "" {
-				buffRead <- []string{waitingString, fmt.Sprintf("%v", re), re.FindString(waitingString)}
-				break
+			if r := re.FindString(waitingString); r != "" {
+				buffRead <- []string{waitingString, fmt.Sprintf("%v", re), r}
+				return
 			}
 		}
 		for _, re := range sadExpectations {
-			if re.FindString(waitingString) != "" {
-				errChan <- []error{fmt.Errorf(re.FindString(waitingString)), fmt.Errorf("%v", re)}
-				break
+			if r := re.FindString(waitingString); r != "" {
+				errChan <- []error{fmt.Errorf(r), fmt.Errorf("%v - %v", re, waitingString)}
+				return
 			}
 		}
 	}
@@ -162,26 +138,13 @@ func (s *Endpoint) Connect() error {
 	return nil
 }
 
-// parseNeName extracts the actuall ne name and fills ne.Name variable.
-// func (s *Endpoint) parseNeName(lines []string) string {
-// 	for _, l := range lines {
-// 		if strings.Contains(l, "#") {
-// 			trimedLine := strings.TrimSpace(l)
-// 			if trimedLine[len(trimedLine)-1] == '#' {
-// 				return trimedLine[:len(trimedLine)-1]
-// 			}
-// 		}
-// 	}
-// 	return s.Name
-// }
-
 // CliLogin does the special login sequence needed to login to PSS cli.
 func (s *Endpoint) cliLogin() error {
-
 	prompt_re := regexp.MustCompile(prompt)
 	username_re := regexp.MustCompile(username)
 	password_re := regexp.MustCompile(password)
 	agreement_re := regexp.MustCompile(agreement)
+	authFail_re := regexp.MustCompile(authFail)
 
 	var err error
 	modes := ssh.TerminalModes{
@@ -212,39 +175,39 @@ func (s *Endpoint) cliLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
 	}
+
 	if _, err := readBuff([]*regexp.Regexp{username_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on readBuff(username) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
+
 	if _, err := writeBuff(s.UserName, s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.UserName) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if _, err := readBuff([]*regexp.Regexp{password_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
+
+	if _, err := readBuff([]*regexp.Regexp{password_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on readBuff(Password) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
+
 	if _, err := writeBuff(s.Password, s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.Password) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if s.Kind == "PSS" || s.Kind == "GMRE" {
-		if response, err := readBuff([]*regexp.Regexp{agreement_re, prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
-			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
-		} else {
-			switch response[1] {
-			case agreement:
-				if _, err := writeBuff("yes", s.SshIn); err != nil {
-					s.Session.Close()
-					return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
-				}
-				if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
-					s.Session.Close()
-					return fmt.Errorf("%v:%v - failure on readBuff(#) (INIT) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
-				}
 
-			case prompt:
-				s.Name = response[2]
+	if s.Kind == "PSS" || s.Kind == "GMRE" {
+		if response, err := readBuff([]*regexp.Regexp{agreement_re, prompt_re}, []*regexp.Regexp{authFail_re}, s.SshOut, 6); err != nil {
+			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
+		} else if response[1] == agreement {
+
+			if _, err := writeBuff("yes", s.SshIn); err != nil {
+				s.Session.Close()
+				return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
+			}
+			if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
+				s.Session.Close()
+				return fmt.Errorf("%v:%v - failure on readBuff(#) (INIT) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 			}
 		}
 	}
@@ -295,9 +258,8 @@ func (s *Endpoint) oseLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if d, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
+	if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
-		log.Println(d)
 		return fmt.Errorf("%v:%v - failure on readBuff(#) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
@@ -311,9 +273,8 @@ func (s *Endpoint) oseLogin() error {
 		return fmt.Errorf("%v:%v - failure on writeBuff(newLines) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if d, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
+	if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
-		log.Println(d)
 		return fmt.Errorf("%v:%v - failure on readBuff(ACT-OSE $ ) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
