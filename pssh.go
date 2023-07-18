@@ -5,11 +5,19 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+)
+
+const (
+	prompt    = `^(([\w\-\#\+\%\/]*\(?\d?\)?\[?\d?\]?#)|(ACT-OSE \$))$`
+	username  = `(?i)(user( ?name)?)\s?:$`
+	password  = `(?i)(pass( ?word)?)\s?:$`
+	agreement = `\(\s?(?i:yes|y)\s?\/\s?(?i:no|n)\s?\)\s?[:?]?`
 )
 
 type Endpoint struct {
@@ -24,10 +32,35 @@ type Endpoint struct {
 	Timeout   int
 	Client    *ssh.Client
 	Session   *ssh.Session
-	Kind      string //Accepted values: BASH, PSS,PSS23.6, OSE, PSD
+	Kind      string //Accepted values: BASH, PSS, OSE, PSD
 }
 
-func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
+// func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- string, errChan chan error) {
+// 	buf := make([]byte, 1000)
+// 	waitingString := ""
+// 	for {
+// 		n, err := sshOut.Read(buf) //this reads the ssh terminal
+// 		if err != nil && err != io.EOF {
+// 			fmt.Println(err)
+// 			break
+// 		}
+// 		if err == io.EOF || n == 0 {
+// 			break
+// 		}
+// 		waitingString = strings.Join([]string{waitingString, string(buf[:n])}, "")
+// 		if strings.Contains(waitingString, whattoexpect[0]) {
+// 			buffRead <- waitingString
+// 			break
+// 		} else if len(whattoexpect) > 1 {
+// 			if strings.Contains(waitingString, whattoexpect[1]) {
+// 				errChan <- fmt.Errorf("wrong username/password")
+// 				break
+// 			}
+// 		}
+// 	}
+// }
+
+func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, buffRead chan<- []string, errChan chan []error) {
 	buf := make([]byte, 1000)
 	waitingString := ""
 	for {
@@ -40,37 +73,40 @@ func readBuffForString(whattoexpect []string, sshOut io.Reader, buffRead chan<- 
 			break
 		}
 		waitingString = strings.Join([]string{waitingString, string(buf[:n])}, "")
-		if strings.Contains(waitingString, whattoexpect[0]) {
-			buffRead <- waitingString
-			break
-		} else if len(whattoexpect) > 1 {
-			if strings.Contains(waitingString, whattoexpect[1]) {
-				errChan <- fmt.Errorf("wrong username/password")
+		for _, re := range happyExpectations {
+			if re.FindString(waitingString) != "" {
+				buffRead <- []string{waitingString, fmt.Sprintf("%v", re), re.FindString(waitingString)}
+				break
+			}
+		}
+		for _, re := range sadExpectations {
+			if re.FindString(waitingString) != "" {
+				errChan <- []error{fmt.Errorf(re.FindString(waitingString)), fmt.Errorf("%v", re)}
 				break
 			}
 		}
 	}
 }
 
-func readBuff(whattoexpect []string, sshOut io.Reader, timeoutSeconds int) (string, error) {
-	errChan := make(chan error)
-	ch := make(chan string)
-	go func(whattoexpect []string, sshOut io.Reader, errChan chan error) {
-		buffRead := make(chan string)
-		go readBuffForString(whattoexpect, sshOut, buffRead, errChan)
+func readBuff(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, timeoutSeconds int) ([]string, []error) {
+	errChan := make(chan []error)
+	ch := make(chan []string)
+	go func(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, errChan chan []error) {
+		buffRead := make(chan []string)
+		go readBuffForString(happyExpectations, sadExpectations, sshOut, buffRead, errChan)
 		select {
 		case ret := <-buffRead:
 			ch <- ret
 		case <-time.After(time.Duration(timeoutSeconds) * time.Second):
 		}
-	}(whattoexpect, sshOut, errChan)
+	}(happyExpectations, sadExpectations, sshOut, errChan)
 	select {
 	case data := <-ch:
 		return data, nil
 	case err := <-errChan:
-		return "", err
+		return []string{}, err
 	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
-		return "", fmt.Errorf("timedout on: %v", whattoexpect)
+		return []string{}, []error{fmt.Errorf("timedout on: %+v , %+v ", happyExpectations, sadExpectations), fmt.Errorf("")}
 	}
 }
 
@@ -96,7 +132,7 @@ func (s *Endpoint) Connect() error {
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password(s.Password),
 		}
-	} else if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
+	} else if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		config.User = "cli"
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password("cli"),
@@ -114,7 +150,7 @@ func (s *Endpoint) Connect() error {
 			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
 		}
 	}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		if err := s.cliLogin(); err != nil {
 			return err
 		}
@@ -127,20 +163,26 @@ func (s *Endpoint) Connect() error {
 }
 
 // parseNeName extracts the actuall ne name and fills ne.Name variable.
-func (s *Endpoint) parseNeName(lines []string) string {
-	for _, l := range lines {
-		if strings.Contains(l, "#") {
-			trimedLine := strings.TrimSpace(l)
-			if trimedLine[len(trimedLine)-1] == '#' {
-				return trimedLine[:len(trimedLine)-1]
-			}
-		}
-	}
-	return s.Name
-}
+// func (s *Endpoint) parseNeName(lines []string) string {
+// 	for _, l := range lines {
+// 		if strings.Contains(l, "#") {
+// 			trimedLine := strings.TrimSpace(l)
+// 			if trimedLine[len(trimedLine)-1] == '#' {
+// 				return trimedLine[:len(trimedLine)-1]
+// 			}
+// 		}
+// 	}
+// 	return s.Name
+// }
 
 // CliLogin does the special login sequence needed to login to PSS cli.
 func (s *Endpoint) cliLogin() error {
+
+	prompt_re := regexp.MustCompile(prompt)
+	username_re := regexp.MustCompile(username)
+	password_re := regexp.MustCompile(password)
+	agreement_re := regexp.MustCompile(agreement)
+
 	var err error
 	modes := ssh.TerminalModes{
 		// disable echoing.
@@ -170,49 +212,41 @@ func (s *Endpoint) cliLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if _, err := readBuff([]string{"Username:"}, s.SshOut, 6); err != nil {
+	if _, err := readBuff([]*regexp.Regexp{username_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on readBuff(username) - details: %v", s.Ip, s.Port, err.Error())
+		return fmt.Errorf("%v:%v - failure on readBuff(username) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 	if _, err := writeBuff(s.UserName, s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.UserName) - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if _, err := readBuff([]string{"Password:"}, s.SshOut, 4); err != nil {
+	if _, err := readBuff([]*regexp.Regexp{password_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
 		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on readBuff(Password) - details: %v", s.Ip, s.Port, err.Error())
+		return fmt.Errorf("%v:%v - failure on readBuff(Password) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 	if _, err := writeBuff(s.Password, s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.Password) - details: %v", s.Ip, s.Port, err.Error())
 	}
 	if s.Kind == "PSS" || s.Kind == "GMRE" {
-		if _, err := readBuff([]string{"(Y/N)?", "authentication failed"}, s.SshOut, 4); err != nil {
-			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, err.Error())
+		if response, err := readBuff([]*regexp.Regexp{agreement_re, prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
+			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
+		} else {
+			switch response[1] {
+			case agreement:
+				if _, err := writeBuff("yes", s.SshIn); err != nil {
+					s.Session.Close()
+					return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
+				}
+				if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
+					s.Session.Close()
+					return fmt.Errorf("%v:%v - failure on readBuff(#) (INIT) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
+				}
+
+			case prompt:
+				s.Name = response[2]
+			}
 		}
-	} else if s.Kind == "PSS23.6" {
-		goto findPrompt
-
-	} else if s.Kind == "PSD" {
-		if _, err := readBuff([]string{"(yes/no):", "authentication failed"}, s.SshOut, 4); err != nil {
-			return fmt.Errorf("%v:%v - failure on readBuff(yes/no): - details: %v", s.Ip, s.Port, err.Error())
-		}
-	}
-	if _, err := writeBuff("yes", s.SshIn); err != nil {
-		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
-	}
-
-findPrompt:
-
-	result, err := readBuff([]string{"#"}, s.SshOut, 4)
-	if err != nil {
-		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on readBuff(#) (INIT) - details: %v", s.Ip, s.Port, err.Error())
-	}
-
-	if s.Kind == "PSS" || s.Kind == "PSS23.6" {
-		s.Name = s.parseNeName(strings.Split(result, "\r"))
 	}
 
 	if _, err := writeBuff("paging status disable", s.SshIn); err != nil {
@@ -220,15 +254,10 @@ findPrompt:
 		return fmt.Errorf("%v:%v - failure on writeBuff(Page Status Disable) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if s.Kind == "PSS" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
-		if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 4); err != nil {
+	if s.Kind == "PSS" || s.Kind == "GMRE" || s.Kind == "PSD" {
+		if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
 			s.Session.Close()
-			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
-		}
-	} else if s.Kind == "PSD" {
-		if _, err := readBuff([]string{"#"}, s.SshOut, 4); err != nil {
-			s.Session.Close()
-			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, err.Error())
+			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 		}
 	}
 	return nil
@@ -236,6 +265,7 @@ findPrompt:
 
 // oseLogin first logs in to the BASH cli and then jump to the OSE prompt.
 func (s *Endpoint) oseLogin() error {
+	prompt_re := regexp.MustCompile(prompt)
 	var err error
 	modes := ssh.TerminalModes{
 		// disable echoing.
@@ -265,10 +295,10 @@ func (s *Endpoint) oseLogin() error {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
 	}
-	if d, err := readBuff([]string{"#"}, s.SshOut, 6); err != nil {
+	if d, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
 		log.Println(d)
-		return fmt.Errorf("%v:%v - failure on readBuff(#) - details: %v", s.Ip, s.Port, err.Error())
+		return fmt.Errorf("%v:%v - failure on readBuff(#) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
 	if _, err := writeBuff("ose", s.SshIn); err != nil {
@@ -281,10 +311,10 @@ func (s *Endpoint) oseLogin() error {
 		return fmt.Errorf("%v:%v - failure on writeBuff(newLines) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if d, err := readBuff([]string{"ACT-OSE $ "}, s.SshOut, 6); err != nil {
+	if d, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 		s.Session.Close()
 		log.Println(d)
-		return fmt.Errorf("%v:%v - failure on readBuff(ACT-OSE $ ) - details: %v", s.Ip, s.Port, err.Error())
+		return fmt.Errorf("%v:%v - failure on readBuff(ACT-OSE $ ) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
 	return nil
@@ -292,19 +322,16 @@ func (s *Endpoint) oseLogin() error {
 
 // Run executes the given cli command on the opened session.
 func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
+	prompt_re := regexp.MustCompile(prompt)
 	result := map[string]string{}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "PSS23.6" {
-		prompt := []string{s.Name + "#"}
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		if s.Kind == "GMRE" {
-			//prompt = []string{"]#"}
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
 			}
 			for c := range cmds {
 				cmds[c] += "\r"
 			}
-
-			prompt = []string{"]#"}
 		}
 
 		for _, c := range cmds {
@@ -313,11 +340,11 @@ func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
 				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
 			}
 
-			data, err := readBuff(prompt, s.SshOut, 15)
+			data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
 			if err != nil {
-				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
+				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, fmt.Errorf("%v - %v", err[0], err[1]))
 			}
-			result[c] = data
+			result[c] = data[0]
 		}
 
 		if s.Kind == "GMRE" || s.Kind == "PSD" {
@@ -342,18 +369,17 @@ func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
 			}
 		}
 	} else if s.Kind == "OSE" {
-		prompt := []string{s.Name + "ACT-OSE $"}
 		for _, c := range cmds {
 			if _, err := writeBuff(c, s.SshIn); err != nil {
 				s.Session.Close()
 				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
 			}
 
-			data, err := readBuff(prompt, s.SshOut, 15)
+			data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
 			if err != nil {
-				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, err.Error())
+				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, fmt.Errorf("%v - %v", err[0], err[1]))
 			}
-			result[c] = data
+			result[c] = data[0]
 		}
 
 		s.Session.Signal(ssh.SIGINT)
@@ -406,13 +432,17 @@ func validateNode(s *Endpoint) error {
 
 // gmreLogin logs in to the PSS cli and then switches to gmre by sending "tools gmre" command.
 func (s *Endpoint) gmreLogin() error {
+
+	prompt_re := regexp.MustCompile(prompt)
+	username_re := regexp.MustCompile(username)
+	password_re := regexp.MustCompile(password)
 	if _, err := writeBuff("tools gmre", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Run(tools gmre) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if _, err := readBuff([]string{"username:"}, s.SshOut, 15); err != nil {
-		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(username:) - details: %v", s.Ip, s.Port, err.Error())
+	if _, err := readBuff([]*regexp.Regexp{username_re}, []*regexp.Regexp{}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(username:) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
 	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
@@ -420,8 +450,8 @@ func (s *Endpoint) gmreLogin() error {
 		return fmt.Errorf("%v:%v - failure on username(gmre) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if _, err := readBuff([]string{"password:"}, s.SshOut, 15); err != nil {
-		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(password:) - details: %v", s.Ip, s.Port, err.Error())
+	if _, err := readBuff([]*regexp.Regexp{password_re}, []*regexp.Regexp{}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(password:) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
 	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
@@ -429,8 +459,8 @@ func (s *Endpoint) gmreLogin() error {
 		return fmt.Errorf("%v:%v - failure on password(gmre) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if _, err := readBuff([]string{"]#"}, s.SshOut, 15); err != nil {
-		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(]#) - details: %v", s.Ip, s.Port, err.Error())
+	if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(]#) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
 	return nil
@@ -438,13 +468,14 @@ func (s *Endpoint) gmreLogin() error {
 
 // gmreLogout sends quit command to PSS gmre and PSD.
 func (s *Endpoint) gmreLogout() error {
+	prompt_re := regexp.MustCompile(prompt)
 	if _, err := writeBuff("quit\r", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Run(quit) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if _, err := readBuff([]string{s.Name + "#"}, s.SshOut, 15); err != nil {
-		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(cli prompt) - details: %v", s.Ip, s.Port, err.Error())
+	if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15); err != nil {
+		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(cli prompt) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
 	return nil

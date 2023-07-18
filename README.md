@@ -50,4 +50,5 @@ func main() {
 # Features:
 ```
 It supports connecting to 1830PSS cli (Kind = PSS),1830PSS ose (Kind = OSE), 1830PSS gmre (Kind = GMRE), Linux shell (Kind = BASH) and 1830PSD cli (Kind = PSD).
+1830 PSS 23.6 cli login support has been added.
 ```
