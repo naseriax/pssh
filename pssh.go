@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	// prompt    = `([\w\-\#\+\%\/]*(\(?\d?\)?\[?\d?\])?#)|(ACT-OSE \$)`
 	prompt    = `([\w\-\#\+\%\/\(\d\)\[\d\]]+#\s)|(ACT-OSE \$)`
 	username  = `(?i)(user( ?name)?)\s?:`
 	password  = `(?i)(pass( ?word)?)\s?:`
@@ -283,66 +282,68 @@ func (s *Endpoint) oseLogin() error {
 }
 
 // Run executes the given cli command on the opened session.
-func (s *Endpoint) Run(cmds ...string) (map[string]string, error) {
-	prompt_re := regexp.MustCompile(prompt)
+func (s *Endpoint) Run(args ...string) (map[string]string, error) {
+
+	var prompt_re *regexp.Regexp
+
+	if len(args) > 1 {
+		prompt_re = regexp.MustCompile(args[1])
+	} else {
+		prompt_re = regexp.MustCompile(prompt)
+	}
+
 	result := map[string]string{}
 	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
 		if s.Kind == "GMRE" {
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
 			}
-			for c := range cmds {
-				cmds[c] += "\r"
-			}
+			args[0] += "\r"
 		}
 
-		for _, c := range cmds {
-			if _, err := writeBuff(c, s.SshIn); err != nil {
-				s.Session.Close()
-				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
-			}
-
-			data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
-			if err != nil {
-				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, fmt.Errorf("%v - %v", err[0], err[1]))
-			}
-			result[c] = data[0]
+		if _, err := writeBuff(args[0], s.SshIn); err != nil {
+			s.Session.Close()
+			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, args[0], err.Error())
 		}
 
-		if s.Kind == "GMRE" || s.Kind == "PSD" {
-			if err := s.gmreLogout(); err != nil {
-				return nil, err
-			}
+		data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
+		if err != nil {
+			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, args[0], fmt.Errorf("%v - %v", err[0], err[1]))
 		}
+		result[args[0]] = data[0]
+	}
+
+	if s.Kind == "GMRE" || s.Kind == "PSD" {
+		if err := s.gmreLogout(); err != nil {
+			return nil, err
+		}
+
 	} else if s.Kind == "BASH" {
 		var err error
-		for _, c := range cmds {
-			s.Session, err = s.Client.NewSession()
-			if err != nil {
-				return nil, fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
-			}
-			defer s.Session.Close()
-			var b bytes.Buffer
-			s.Session.Stdout = &b
-			if err := s.Session.Run(c); err != nil {
-				return nil, fmt.Errorf("failed to run: %v >> %v", c, err.Error())
-			} else {
-				result[c] = b.String()
-			}
+		s.Session, err = s.Client.NewSession()
+		if err != nil {
+			return nil, fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
+		}
+		defer s.Session.Close()
+		var b bytes.Buffer
+		s.Session.Stdout = &b
+		if err := s.Session.Run(args[0]); err != nil {
+			return nil, fmt.Errorf("failed to run: %v >> %v", args[0], err.Error())
+		} else {
+			result[args[0]] = b.String()
 		}
 	} else if s.Kind == "OSE" {
-		for _, c := range cmds {
-			if _, err := writeBuff(c, s.SshIn); err != nil {
-				s.Session.Close()
-				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, c, err.Error())
-			}
 
-			data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
-			if err != nil {
-				return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, c, fmt.Errorf("%v - %v", err[0], err[1]))
-			}
-			result[c] = data[0]
+		if _, err := writeBuff(args[0], s.SshIn); err != nil {
+			s.Session.Close()
+			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, args[0], err.Error())
 		}
+
+		data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
+		if err != nil {
+			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, args[0], fmt.Errorf("%v - %v", err[0], err[1]))
+		}
+		result[args[0]] = data[0]
 
 		s.Session.Signal(ssh.SIGINT)
 		time.Sleep(3 * time.Second)
