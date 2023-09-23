@@ -284,12 +284,11 @@ func (s *Endpoint) oseLogin() error {
 // Run executes the given cli command on the opened session.
 func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 
-	var prompt_re *regexp.Regexp
+	prompt_re := regexp.MustCompile(prompt)
+	expectedPrompt := []*regexp.Regexp{prompt_re}
 
 	if len(args) > 1 {
-		prompt_re = regexp.MustCompile(args[1])
-	} else {
-		prompt_re = regexp.MustCompile(prompt)
+		expectedPrompt = append(expectedPrompt, regexp.MustCompile(args[1]))
 	}
 
 	result := map[string]string{}
@@ -306,7 +305,7 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, args[0], err.Error())
 		}
 
-		data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
+		data, err := readBuff(expectedPrompt, []*regexp.Regexp{}, s.SshOut, 15)
 		if err != nil {
 			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, args[0], fmt.Errorf("%v - %v", err[0], err[1]))
 		}
@@ -339,7 +338,7 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, args[0], err.Error())
 		}
 
-		data, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 15)
+		data, err := readBuff(expectedPrompt, []*regexp.Regexp{}, s.SshOut, 15)
 		if err != nil {
 			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - readBuff(%v#) - details: %v", s.Ip, s.Port, s.Name, args[0], fmt.Errorf("%v - %v", err[0], err[1]))
 		}
