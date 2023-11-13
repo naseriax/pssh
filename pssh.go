@@ -27,7 +27,7 @@ type Endpoint struct {
 	Name      string
 	UserName  string
 	Password  string
-	Vars      map[string]string
+	Vars      map[string][]string
 	Port      string
 	SshOut    io.Reader
 	SshIn     io.WriteCloser
