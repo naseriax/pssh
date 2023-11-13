@@ -27,6 +27,7 @@ type Endpoint struct {
 	Name      string
 	UserName  string
 	Password  string
+	Vars      map[string]string
 	Port      string
 	SshOut    io.Reader
 	SshIn     io.WriteCloser
@@ -40,7 +41,7 @@ func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshO
 	buf := make([]byte, 1000)
 	waitingString := ""
 	for {
-		n, err := sshOut.Read(buf) //this reads the ssh terminal
+		n, err := sshOut.Read(buf)
 		if err != nil && err != io.EOF {
 			fmt.Println(err)
 			return
@@ -103,16 +104,20 @@ func (s *Endpoint) Connect() error {
 		Timeout:         time.Duration(s.Timeout) * time.Second,
 	}
 
-	if s.Kind == "BASH" || s.Kind == "OSE" {
-		config.User = s.UserName
-		config.Auth = []ssh.AuthMethod{
-			ssh.Password(s.Password),
-		}
-	} else if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
-		config.User = "cli"
-		config.Auth = []ssh.AuthMethod{
-			ssh.Password("cli"),
-		}
+	sshUser := "cli"
+	sshPass := "cli"
+
+	k := strings.ToLower(s.Kind)
+
+	switch k {
+	case "bash", "ose":
+		sshUser = s.UserName
+		sshPass = s.Password
+	}
+
+	config.User = sshUser
+	config.Auth = []ssh.AuthMethod{
+		ssh.Password(sshPass),
 	}
 
 	if s.ViaTunnel {
@@ -126,15 +131,18 @@ func (s *Endpoint) Connect() error {
 			return fmt.Errorf("%v:%v - %v", s.Ip, s.Port, err.Error())
 		}
 	}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
+
+	switch k {
+	case "pss", "psd", "gmre":
 		if err := s.cliLogin(); err != nil {
 			return err
 		}
-	} else if s.Kind == "OSE" {
+	case "ose":
 		if err := s.oseLogin(); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -148,11 +156,8 @@ func (s *Endpoint) cliLogin() error {
 
 	var err error
 	modes := ssh.TerminalModes{
-		// disable echoing.
-		ssh.ECHO: 0,
-		// input speed = 14.4kbaud.
+		ssh.ECHO:          0,
 		ssh.TTY_OP_ISPEED: 14400,
-		// output speed = 14.4kbaud.
 		ssh.TTY_OP_OSPEED: 14400,
 	}
 	s.Session, err = s.Client.NewSession()
@@ -231,11 +236,8 @@ func (s *Endpoint) oseLogin() error {
 	prompt_re := regexp.MustCompile(prompt)
 	var err error
 	modes := ssh.TerminalModes{
-		// disable echoing.
-		ssh.ECHO: 0,
-		// input speed = 14.4kbaud.
+		ssh.ECHO:          0,
 		ssh.TTY_OP_ISPEED: 14400,
-		// output speed = 14.4kbaud.
 		ssh.TTY_OP_OSPEED: 14400,
 	}
 	s.Session, err = s.Client.NewSession()
