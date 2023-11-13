@@ -34,7 +34,7 @@ type Endpoint struct {
 	Timeout   int
 	Client    *ssh.Client
 	Session   *ssh.Session
-	Kind      string //Accepted values: BASH, PSS, OSE, PSD
+	Kind      string //Accepted values: BASH, PSS, OSE, PSD,...
 }
 
 func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, buffRead chan<- []string, errChan chan []error) {
