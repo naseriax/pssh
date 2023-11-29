@@ -156,6 +156,8 @@ func (s *Endpoint) cliLogin() error {
 	authFail_re := regexp.MustCompile(authFail)
 	srosPrompt_re := regexp.MustCompile(srosPrompt)
 
+	k := strings.ToLower(s.Kind)
+
 	var err error
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          0,
@@ -189,7 +191,7 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if strings.ToLower(s.Kind) == "sros" {
+	if k == "sros" {
 		if _, err := readBuff([]*regexp.Regexp{srosPrompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
 			s.Session.Close()
 			return fmt.Errorf("%v:%v - failure on readBuff(srosPrompt) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
@@ -218,7 +220,7 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.Password) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if s.Kind == "PSS" || s.Kind == "GMRE" {
+	if k == "pss" || k == "gmre" {
 		if response, err := readBuff([]*regexp.Regexp{agreement_re, prompt_re}, []*regexp.Regexp{authFail_re}, s.SshOut, 6); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 		} else if response[1] == agreement {
@@ -239,7 +241,7 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on writeBuff(Page Status Disable) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if s.Kind == "PSS" || s.Kind == "GMRE" || s.Kind == "PSD" {
+	if k == "pss" || k == "gmre" || k == "psd" {
 		if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
 			s.Session.Close()
 			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
@@ -315,9 +317,11 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 		expectedPrompt = append(expectedPrompt, regexp.MustCompile(args[1]))
 	}
 
+	k := strings.ToLower(s.Kind)
+
 	result := map[string]string{}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "SROS" {
-		if s.Kind == "GMRE" {
+	if k == "pss" || k == "psd" || k == "gmre" || k == "sros" {
+		if k == "gmre" {
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
 			}
@@ -336,12 +340,12 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 		result[args[0]] = data[0]
 	}
 
-	if s.Kind == "GMRE" || s.Kind == "PSD" {
+	if k == "gmre" || k == "psd" {
 		if err := s.gmreLogout(); err != nil {
 			return nil, err
 		}
 
-	} else if s.Kind == "BASH" {
+	} else if k == "bash" {
 		var err error
 		s.Session, err = s.Client.NewSession()
 		if err != nil {
@@ -355,7 +359,7 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 		} else {
 			result[args[0]] = b.String()
 		}
-	} else if s.Kind == "OSE" {
+	} else if k == "ose" {
 
 		if _, err := writeBuff(args[0], s.SshIn); err != nil {
 			s.Session.Close()
@@ -377,7 +381,8 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 
 // Disconnect closes the ssh sessoin and connection.
 func (s *Endpoint) Disconnect() {
-	if s.Kind == "PSS" || s.Kind == "PSS23.6" {
+	k := strings.ToLower(s.Kind)
+	if k == "pss" || k == "pss23.6" || k == "sros" {
 		s.Session.Close()
 	}
 
