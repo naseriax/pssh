@@ -111,7 +111,7 @@ func (s *Endpoint) Connect() error {
 	k := strings.ToLower(s.Kind)
 
 	switch k {
-	case "bash", "ose":
+	case "bash", "ose", "sros":
 		sshUser = s.UserName
 		sshPass = s.Password
 	}
