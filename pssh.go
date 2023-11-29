@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	prompt    = `([\w\-\#\+\%\/\(\d\)\[\d\]]+#\s)|(ACT-OSE \$)`
-	username  = `(?i)(user( ?name)?)\s?:`
-	password  = `(?i)(pass( ?word)?)\s?:`
-	agreement = `\(\s?(?i:yes|y)\s?\/\s?(?i:no|n)\s?\)\s?[:?]?`
-	authFail  = `(?i)(failed\.)`
+	prompt     = `([\w\-\#\+\%\/\(\d\)\[\d\]]+#\s)|(ACT-OSE \$)`
+	username   = `(?i)(user( ?name)?)\s?:`
+	password   = `(?i)(pass( ?word)?)\s?:`
+	agreement  = `\(\s?(?i:yes|y)\s?\/\s?(?i:no|n)\s?\)\s?[:?]?`
+	authFail   = `(?i)(failed\.)`
+	srosPrompt = `(\w+\:\w+\@[\w\-\#\+\%\/\(\d\)\[\d\]]+#\s)`
 )
 
 type Endpoint struct {
@@ -133,7 +134,7 @@ func (s *Endpoint) Connect() error {
 	}
 
 	switch k {
-	case "pss", "psd", "gmre":
+	case "pss", "psd", "gmre", "sros":
 		if err := s.cliLogin(); err != nil {
 			return err
 		}
@@ -153,6 +154,7 @@ func (s *Endpoint) cliLogin() error {
 	password_re := regexp.MustCompile(password)
 	agreement_re := regexp.MustCompile(agreement)
 	authFail_re := regexp.MustCompile(authFail)
+	srosPrompt_re := regexp.MustCompile(srosPrompt)
 
 	var err error
 	modes := ssh.TerminalModes{
@@ -160,25 +162,40 @@ func (s *Endpoint) cliLogin() error {
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
+
 	s.Session, err = s.Client.NewSession()
 	if err != nil {
 		return fmt.Errorf("%v:%v - failure on Client.NewSession() - details: %v", s.Ip, s.Port, err.Error())
 	}
+
 	s.SshOut, err = s.Session.StdoutPipe()
+
 	if err != nil {
 		return fmt.Errorf("%v:%v - failure on Session.StdoutPipe() - details: %v", s.Ip, s.Port, err.Error())
 	}
+
 	s.SshIn, err = s.Session.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("%v:%v - failure on Session.StdinPipe() - details: %v", s.Ip, s.Port, err.Error())
 	}
+
 	if err := s.Session.RequestPty("xterm", 0, 200, modes); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Session.RequestPty() - details: %v", s.Ip, s.Port, err.Error())
 	}
+
 	if err := s.Session.Shell(); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Session.Shell() - details: %v", s.Ip, s.Port, err.Error())
+	}
+
+	if strings.ToLower(s.Kind) == "sros" {
+		if _, err := readBuff([]*regexp.Regexp{srosPrompt_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
+			s.Session.Close()
+			return fmt.Errorf("%v:%v - failure on readBuff(srosPrompt) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
+		}
+
+		return nil
 	}
 
 	if _, err := readBuff([]*regexp.Regexp{username_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
@@ -289,12 +306,17 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 	prompt_re := regexp.MustCompile(prompt)
 	expectedPrompt := []*regexp.Regexp{prompt_re}
 
+	if strings.ToLower(s.Kind) == "sros" {
+		srosPrompt_re := regexp.MustCompile(srosPrompt)
+		expectedPrompt = []*regexp.Regexp{srosPrompt_re}
+	}
+
 	if len(args) > 1 {
 		expectedPrompt = append(expectedPrompt, regexp.MustCompile(args[1]))
 	}
 
 	result := map[string]string{}
-	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" {
+	if s.Kind == "PSS" || s.Kind == "PSD" || s.Kind == "GMRE" || s.Kind == "SROS" {
 		if s.Kind == "GMRE" {
 			if err := s.gmreLogin(); err != nil {
 				return nil, err
