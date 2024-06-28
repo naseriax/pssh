@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,19 +24,33 @@ const (
 )
 
 type Endpoint struct {
-	ViaTunnel bool
-	Ip        string
-	Name      string
-	UserName  string
-	Password  string
-	Vars      map[string][]string
-	Port      string
-	SshOut    io.Reader
-	SshIn     io.WriteCloser
-	Timeout   int
-	Client    *ssh.Client
-	Session   *ssh.Session
-	Kind      string //Accepted values: BASH, PSS, OSE, PSD,...
+	ViaTunnel   bool
+	Ip          string
+	Name        string
+	UserName    string
+	Password    string
+	PrivKeyPath string
+	Vars        map[string][]string
+	Port        string
+	SshOut      io.Reader
+	SshIn       io.WriteCloser
+	Timeout     int
+	Client      *ssh.Client
+	Session     *ssh.Session
+	Kind        string //Accepted values: BASH, PSS, OSE, PSD,...
+}
+
+func publicKeyFile(file string) ssh.AuthMethod {
+	buffer, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+
+	key, err := ssh.ParsePrivateKey(buffer)
+	if err != nil {
+		return nil
+	}
+	return ssh.PublicKeys(key)
 }
 
 func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, buffRead chan<- []string, errChan chan []error) {
@@ -119,6 +134,7 @@ func (s *Endpoint) Connect() error {
 	config.User = sshUser
 	config.Auth = []ssh.AuthMethod{
 		ssh.Password(sshPass),
+		publicKeyFile(s.PrivKeyPath),
 	}
 
 	if s.ViaTunnel {
