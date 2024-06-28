@@ -132,10 +132,16 @@ func (s *Endpoint) Connect() error {
 	}
 
 	config.User = sshUser
-	config.Auth = []ssh.AuthMethod{
+
+	authMethods := []ssh.AuthMethod{
 		ssh.Password(sshPass),
-		publicKeyFile(s.PrivKeyPath),
 	}
+
+	if s.PrivKeyPath != "" {
+		authMethods = append(authMethods, publicKeyFile(s.PrivKeyPath))
+	}
+
+	config.Auth = authMethods
 
 	if s.ViaTunnel {
 		s.Client, err = ssh.Dial("tcp", fmt.Sprintf("%v:%v", "127.0.0.1", s.Port), config)
