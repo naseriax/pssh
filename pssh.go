@@ -37,7 +37,7 @@ type Endpoint struct {
 	Timeout     int
 	Client      *ssh.Client
 	Session     *ssh.Session
-	Kind        string //Accepted values: BASH, PSS, OSE, PSD,...
+	Kind        string //Accepted values: BASH, PSS, OSE, PSD, SROS
 }
 
 func publicKeyFile(file string) ssh.AuthMethod {
