@@ -24,20 +24,22 @@ const (
 )
 
 type Endpoint struct {
-	ViaTunnel   bool
-	Ip          string
-	Name        string
-	UserName    string
-	Password    string
-	PrivKeyPath string
-	Vars        map[string][]string
-	Port        string
-	SshOut      io.Reader
-	SshIn       io.WriteCloser
-	Timeout     int
-	Client      *ssh.Client
-	Session     *ssh.Session
-	Kind        string //Accepted values: BASH, PSS, OSE, PSD, SROS
+	ViaTunnel     bool
+	Ip            string
+	Name          string
+	Username      string
+	Password      string
+	GMRE_Username string
+	GMRE_Password string
+	PrivKeyPath   string
+	Vars          map[string][]string
+	Port          string
+	SshOut        io.Reader
+	SshIn         io.WriteCloser
+	Timeout       int
+	Client        *ssh.Client
+	Session       *ssh.Session
+	Kind          string //Accepted values: BASH, PSS, OSE, PSD, SROS
 }
 
 func publicKeyFile(file string) ssh.AuthMethod {
@@ -127,7 +129,7 @@ func (s *Endpoint) Connect() error {
 
 	switch k {
 	case "bash", "ose", "sros":
-		sshUser = s.UserName
+		sshUser = s.Username
 		sshPass = s.Password
 	}
 
@@ -227,7 +229,7 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on readBuff(username) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
-	if _, err := writeBuff(s.UserName, s.SshIn); err != nil {
+	if _, err := writeBuff(s.Username, s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.UserName) - details: %v", s.Ip, s.Port, err.Error())
 	}
@@ -449,6 +451,18 @@ func (s *Endpoint) gmreLogin() error {
 	prompt_re := regexp.MustCompile(prompt)
 	username_re := regexp.MustCompile(username)
 	password_re := regexp.MustCompile(password)
+
+	gmre_username := "gmre"
+	gmre_password := "gmre"
+
+	if s.GMRE_Username != "" {
+		gmre_username = s.GMRE_Username
+	}
+
+	if s.GMRE_Password != "" {
+		gmre_password = s.GMRE_Password
+	}
+
 	if _, err := writeBuff("tools gmre", s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on Run(tools gmre) - details: %v", s.Ip, s.Port, err.Error())
@@ -458,7 +472,7 @@ func (s *Endpoint) gmreLogin() error {
 		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(username:) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
-	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
+	if _, err := writeBuff(fmt.Sprintf("%v\r", gmre_username), s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on username(gmre) - details: %v", s.Ip, s.Port, err.Error())
 	}
@@ -467,7 +481,7 @@ func (s *Endpoint) gmreLogin() error {
 		return fmt.Errorf("%v:%v - failure on gmre login - readBuff(password:) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
 
-	if _, err := writeBuff("gmre\r", s.SshIn); err != nil {
+	if _, err := writeBuff(fmt.Sprintf("%v\r", gmre_password), s.SshIn); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on password(gmre) - details: %v", s.Ip, s.Port, err.Error())
 	}
