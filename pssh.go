@@ -76,7 +76,7 @@ func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshO
 		}
 		for _, re := range sadExpectations {
 			if r := re.FindString(waitingString); r != "" {
-				errChan <- []error{fmt.Errorf(r), fmt.Errorf("%v - %v", re, waitingString)}
+				errChan <- []error{fmt.Errorf("%v", r), fmt.Errorf("%v - %v", re, waitingString)}
 				return
 			}
 		}
@@ -111,7 +111,7 @@ func writeBuff(command string, sshIn io.WriteCloser) (int, error) {
 }
 
 // Connect connects to the specified server and opens a session (Filling the Client and Session fields in SshAgent struct).
-func (s *Endpoint) Connect() error {
+func (s *Endpoint) Connect(p string) error {
 	if err := validateNode(s); err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (s *Endpoint) Connect() error {
 
 	switch k {
 	case "pss", "psd", "gmre", "sros":
-		if err := s.cliLogin(); err != nil {
+		if err := s.cliLogin(p); err != nil {
 			return err
 		}
 	case "ose":
@@ -172,8 +172,12 @@ func (s *Endpoint) Connect() error {
 }
 
 // CliLogin does the special login sequence needed to login to PSS cli.
-func (s *Endpoint) cliLogin() error {
+func (s *Endpoint) cliLogin(p string) error {
 	prompt_re := regexp.MustCompile(prompt)
+	if p != "" {
+		prompt_re = regexp.MustCompile(p)
+	}
+
 	username_re := regexp.MustCompile(username)
 	password_re := regexp.MustCompile(password)
 	agreement_re := regexp.MustCompile(agreement)
@@ -364,12 +368,12 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 		result[args[0]] = data[0]
 	}
 
-	if k == "gmre" || k == "psd" {
+	switch k {
+	case "gmre", "psd":
 		if err := s.gmreLogout(); err != nil {
 			return nil, err
 		}
-
-	} else if k == "bash" {
+	case "bash":
 		var err error
 		s.Session, err = s.Client.NewSession()
 		if err != nil {
@@ -383,8 +387,7 @@ func (s *Endpoint) Run(args ...string) (map[string]string, error) {
 		} else {
 			result[args[0]] = b.String()
 		}
-	} else if k == "ose" {
-
+	case "ose":
 		if _, err := writeBuff(args[0], s.SshIn); err != nil {
 			s.Session.Close()
 			return nil, fmt.Errorf("%v:%v - failure on Run(%v) - details: %v", s.Ip, s.Port, args[0], err.Error())
