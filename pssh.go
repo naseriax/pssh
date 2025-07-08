@@ -32,6 +32,7 @@ type Endpoint struct {
 	GMRE_Username string
 	GMRE_Password string
 	PrivKeyPath   string
+	InitPrompt    string
 	Vars          map[string][]string
 	Port          string
 	SshOut        io.Reader
@@ -111,7 +112,7 @@ func writeBuff(command string, sshIn io.WriteCloser) (int, error) {
 }
 
 // Connect connects to the specified server and opens a session (Filling the Client and Session fields in SshAgent struct).
-func (s *Endpoint) Connect(p string) error {
+func (s *Endpoint) Connect() error {
 	if err := validateNode(s); err != nil {
 		return err
 	}
@@ -159,7 +160,7 @@ func (s *Endpoint) Connect(p string) error {
 
 	switch k {
 	case "pss", "psd", "gmre", "sros":
-		if err := s.cliLogin(p); err != nil {
+		if err := s.cliLogin(); err != nil {
 			return err
 		}
 	case "ose":
@@ -172,10 +173,10 @@ func (s *Endpoint) Connect(p string) error {
 }
 
 // CliLogin does the special login sequence needed to login to PSS cli.
-func (s *Endpoint) cliLogin(p string) error {
+func (s *Endpoint) cliLogin() error {
 	prompt_re := regexp.MustCompile(prompt)
-	if p != "" {
-		prompt_re = regexp.MustCompile(p)
+	if s.InitPrompt != "" {
+		prompt_re = regexp.MustCompile(s.InitPrompt)
 	}
 
 	username_re := regexp.MustCompile(username)
