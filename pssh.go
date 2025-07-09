@@ -57,18 +57,18 @@ func publicKeyFile(file string) ssh.AuthMethod {
 }
 
 func readBuffForString(happyExpectations, sadExpectations []*regexp.Regexp, sshOut io.Reader, buffRead chan<- []string, errChan chan []error) {
-	buf := make([]byte, 1000)
+	buf := make([]byte, 10000)
 	waitingString := ""
 	for {
 		n, err := sshOut.Read(buf)
 		if err != nil && err != io.EOF {
-			fmt.Println(err)
 			return
 		}
 		if err == io.EOF || n == 0 {
 			return
 		}
 		waitingString = strings.Join([]string{waitingString, string(buf[:n])}, "")
+
 		for _, re := range happyExpectations {
 			if r := re.FindString(waitingString); r != "" {
 				buffRead <- []string{waitingString, fmt.Sprintf("%v", re), r}
@@ -229,7 +229,7 @@ func (s *Endpoint) cliLogin() error {
 		return nil
 	}
 
-	if _, err := readBuff([]*regexp.Regexp{username_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
+	if _, err := readBuff([]*regexp.Regexp{username_re}, []*regexp.Regexp{}, s.SshOut, 10); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on readBuff(username) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
@@ -239,7 +239,7 @@ func (s *Endpoint) cliLogin() error {
 		return fmt.Errorf("%v:%v - failure on writeBuff(s.UserName) - details: %v", s.Ip, s.Port, err.Error())
 	}
 
-	if _, err := readBuff([]*regexp.Regexp{password_re}, []*regexp.Regexp{}, s.SshOut, 6); err != nil {
+	if _, err := readBuff([]*regexp.Regexp{password_re}, []*regexp.Regexp{}, s.SshOut, 10); err != nil {
 		s.Session.Close()
 		return fmt.Errorf("%v:%v - failure on readBuff(Password) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 	}
@@ -250,10 +250,9 @@ func (s *Endpoint) cliLogin() error {
 	}
 
 	if k == "pss" || k == "gmre" {
-		if response, err := readBuff([]*regexp.Regexp{agreement_re, prompt_re}, []*regexp.Regexp{authFail_re}, s.SshOut, 6); err != nil {
+		if response, err := readBuff([]*regexp.Regexp{agreement_re, prompt_re}, []*regexp.Regexp{authFail_re}, s.SshOut, 15); err != nil {
 			return fmt.Errorf("%v:%v - failure on readBuff(Y/N) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
 		} else if response[1] == agreement {
-
 			if _, err := writeBuff("yes", s.SshIn); err != nil {
 				s.Session.Close()
 				return fmt.Errorf("%v:%v - failure on writeBuff(yes) - details: %v", s.Ip, s.Port, err.Error())
@@ -265,17 +264,6 @@ func (s *Endpoint) cliLogin() error {
 		}
 	}
 
-	if _, err := writeBuff("paging status disable", s.SshIn); err != nil {
-		s.Session.Close()
-		return fmt.Errorf("%v:%v - failure on writeBuff(Page Status Disable) - details: %v", s.Ip, s.Port, err.Error())
-	}
-
-	if k == "pss" || k == "gmre" || k == "psd" {
-		if _, err := readBuff([]*regexp.Regexp{prompt_re}, []*regexp.Regexp{}, s.SshOut, 4); err != nil {
-			s.Session.Close()
-			return fmt.Errorf("%v:%v - failure on readBuff(#) (END) - details: %v", s.Ip, s.Port, fmt.Errorf("%v - %v", err[0], err[1]))
-		}
-	}
 	return nil
 }
 
